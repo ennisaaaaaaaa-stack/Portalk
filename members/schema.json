@@ -1,0 +1,142 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "portalk:members/schema.json#v1",
+  "title": "Portalk 成员位 manifest v1",
+  "description": "P0 蓝图 §3 schema v1。单结构+可选字段（人机同构：人类的枝空着=事实稀疏，不是模板分叉）。五原则继承：树是视图不是存储、挂载非拥有、单模板人机同构、权限路径 ACL 不继承、运行时状态不进 manifest。manifest 是信任根（文件是真相）。跨文件不变量（slug 唯一、壳三态时间窗、perms 三域互不相交等）不归 schema 管，由 loader 按 §4 强制。",
+  "type": "object",
+  "required": ["manifest_version", "slug", "kind", "agent_id", "perms"],
+  "properties": {
+    "manifest_version": {
+      "type": "integer",
+      "enum": [1],
+      "description": "manifest 格式版本，随 schema.json 一起版本化"
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "全局唯一（Twitter 模式已定案）；文件名必须为 members/{slug}.yaml；rename 走事件，slug 是法律层"
+    },
+    "kind": {
+      "type": "string",
+      "enum": ["agent", "human"],
+      "description": "人机同构：同一结构，人类枝空"
+    },
+    "agent_id": {
+      "type": "string",
+      "pattern": "^[a-z]+:[A-Za-z0-9._-]+$",
+      "description": "长形式身份锚（agent 前缀 a:，human 前缀 p:；字段名单一维持人机同构）。rename 换名不换 ID——ID 契约已定案"
+    },
+    "display_name": {
+      "type": "string",
+      "description": "默认名，归人类改（display_name 归人类填，slug 才是法律）。agent 自改任何字段推审批（§4-5，conductor 运行时行为）"
+    },
+    "identity": {
+      "type": "object",
+      "description": "身份枝。kind=agent 必有 identity.memory.ref（§4-3，loader 强制）；human 缺省（枝空）",
+      "properties": {
+        "memory": {
+          "type": "object",
+          "required": ["ref", "liveness"],
+          "description": "身份=记忆单一权威：speaker 记 agent_id，壳只记元数据。ref 可指现有库（挂载非拥有）；换库=监护人动作走账本事件 memory.repoint，agent_id 不变",
+          "properties": {
+            "ref": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9+.-]*://\\S+$",
+              "description": "协议://地址"
+            },
+            "liveness": {
+              "type": "string",
+              "enum": ["file"],
+              "description": "探活档位：file=能开+能读 schema 版本，不读内容。探活失败不删枝只亮黄灯（conductor 运行时）"
+            }
+          }
+        }
+      }
+    },
+    "shells": {
+      "type": "array",
+      "description": "0..n 个挂载；每个=(provider, provider_ref) 独占。无 caps 字段——Portalk 不替 runtime 声明工具（§5a，11-15 定案）。一台壳同一时刻至多一个住户（§4-2，换住户时间窗不重叠，loader 强制）",
+      "items": {
+        "type": "object",
+        "required": ["mount", "provider", "provider_ref", "claim_bound_at", "claim_bound_by", "address"],
+        "properties": {
+          "mount": {
+            "type": "string",
+            "pattern": "^\\S+$",
+            "description": "挂载点名（本树内唯一，loader 强制）"
+          },
+          "provider": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9-]*$",
+            "description": "壳类型（同类软件多实例靠 provider_ref 区分）"
+          },
+          "provider_ref": {
+            "type": "string",
+            "pattern": "^\\S+$",
+            "description": "该 runtime 内的实例标识（claim 的 ref）"
+          },
+          "claim_bound_at": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}(T[0-9:.]+(Z|[+-]\\d{2}:?\\d{2})?)?$",
+            "description": "住户绑定起始时间"
+          },
+          "claim_released_at": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}(T[0-9:.]+(Z|[+-]\\d{2}:?\\d{2})?)?$",
+            "description": "解绑时间（§4-2 壳三态的换住户账：解绑+新绑，时间不重叠）。缺省=仍在住（窗口开放）。蓝图 §3 示例未列此字段，为强制执行 §4-2 时间窗校验而设的可选扩展，语义与示例兼容（不写即开放窗口）"
+          },
+          "claim_bound_by": {
+            "type": "string",
+            "pattern": "^[a-z]+:[A-Za-z0-9._-]+$",
+            "description": "监护人绑定（claims 先例），p: 前缀指人类成员位"
+          },
+          "address": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9+.-]*:\\S+$",
+            "description": "地址串（如 systemd:portalk-conductor），adapter 解释"
+          }
+        }
+      }
+    },
+    "perms": {
+      "type": "object",
+      "description": "三域独立，路径 ACL 不继承（§4-4）。路径语法 v1 只定前两段：{域}:{对象类型}[:{对象}]——project:ocean-listen、group:symposion、threads:own:*、thread:t:{uuid}。三域条目互不相交由 loader 强制",
+      "required": ["project", "interact", "dialog"],
+      "properties": {
+        "project": {
+          "type": "array",
+          "description": "v1 空数组起步",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*(:[A-Za-z0-9_*{}.-]+)+$" }
+        },
+        "interact": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*(:[A-Za-z0-9_*{}.-]+)+$" }
+        },
+        "dialog": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[a-z][a-z0-9_-]*(:[A-Za-z0-9_*{}.-]+)+$" }
+        }
+      }
+    },
+    "senses": {
+      "type": "array",
+      "description": "感官枝：引用，非拥有",
+      "items": {
+        "type": "object",
+        "required": ["name", "ref"],
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z][a-z0-9-]*$" },
+          "ref": { "type": "string", "pattern": "^[a-z][a-z0-9+.-]*://\\S+$" }
+        }
+      }
+    },
+    "vault": {
+      "type": "object",
+      "description": "独立库（个人产物挂成员）。树是视图非存储——manifest 挂引用",
+      "properties": {
+        "diary": { "type": "array", "items": { "type": "string" }, "description": "v1 可空" },
+        "opus": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  }
+}

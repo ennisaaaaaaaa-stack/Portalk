@@ -1,0 +1,36 @@
+# members/pianist.yaml —— 出厂第一实例（P0 蓝图 §6：每份 Portalk 安装自带）
+# 「永远在线的默认身体」：未 pin 时消息的第一顺位（P2 接线的验收对象）。
+# slug/agent_id 是法律层不动；display_name 归人类改；agent 自改任何字段推审批（§4-5，conductor 运行时行为）。
+manifest_version: 1
+slug: pianist                    # 全局唯一（Twitter 模式已定案）
+kind: agent
+agent_id: a:b7c2e9f4a1d83c60     # 长形式身份锚（rename 换名不换 ID）
+display_name: Emergence Pianist
+
+identity:
+  memory:                        # kind=agent 必填（§4-3）；身份=记忆单一权威，speaker 记 agent_id，壳只记元数据
+    ref: tideline:///root/portalk/data/tideline/mcp_memory.db   # 随包空库形状（挂载非拥有；换库=监护人动作，走账本事件 memory.repoint，agent_id 不变）
+    liveness: file               # 探活档位：file=能开+能读schema版本，不读内容（探活在 conductor 运行时）
+
+shells:                          # 0..n 个挂载；每个=(provider, provider_ref) 独占
+  - mount: pianist@local-default          # 挂载点名（本树内唯一）
+    provider: pianist
+    provider_ref: local-default           # 该 runtime 内的实例标识（claim 的 ref）
+    claim_bound_at: 2026-11-16
+    claim_bound_by: p:tianxin             # 监护人绑定（claims 先例）
+    address: systemd:portalk-conductor    # 地址串，adapter 解释
+    # 无 caps 字段——Portalk 不替 runtime 声明工具（§5a，11-15 定案）
+
+perms:                           # 三域互不相交，路径 ACL 不继承（§4-4）
+  project: []                    # v1 空数组起步；语法 {域}:{对象类型}[:{对象}]，只定前两段
+  interact: []
+  dialog:
+    - threads:own:*              # 默认自己的全部 thread
+
+senses:                          # 感官枝：引用，非拥有（仓内实况路径）
+  - name: moonshine
+    ref: moonshake:///root/portalk/senses/moonshine/
+
+vault:                           # 独立库（个人产物挂成员）
+  diary: []                      # v1 可空
+  opus: []

@@ -1,0 +1,18 @@
+{
+  "name": "portalk",
+  "version": "0.1.0",
+  "description": "多 agent 桌面通信中枢——P0 成员位（manifest schema）+ P1a thread 层",
+  "type": "module",
+  "private": true,
+  "bin": {
+    "portalk": "bin/portalk.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check src/yaml.mjs && node --check src/jsonschema.mjs && node --check src/loader.mjs && node --check src/db.mjs && node --check src/threads.mjs && node --check bin/portalk.mjs",
+    "fixtures": "node test/gen-fixtures.mjs"
+  }
+}
