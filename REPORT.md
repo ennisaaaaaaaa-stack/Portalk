@@ -1,7 +1,8 @@
-# 施工报告：Portalk P0 成员位 + P1a thread 层（新仓首单）
+# 施工报告：Portalk P1b Pianist 薄客户端（ACP 形状）（新仓第二单）
 
-> 施工：pianist（琴师分身）· 2026-11-16 · 蓝图：`docs/blueprints/Portalk-蓝图-P0-成员位.md`（11-15 定案）+ `Portalk-蓝图-P1a-thread.md`（11-15/16 定案）
-> 状态：完工待复验。**未 commit**（按纪律留工作区）。零 npm 依赖（纯 Node 22 内置模块）。
+> 施工：pianist（琴师分身）· 2026-11-17 · 蓝图：`/tmp/portalk-p1b-blueprint.md`（grill 三问全清 11-16~17，正本未入仓——仓内只有 P0/P1a 两份）
+> 状态：完工待复验。**未 commit**（按纪律留工作区）。零 npm 依赖（纯 Node 22 内置）。
+> 首单报告（P0+P1a）见 `git show e2bf6d0:REPORT.md`。
 
 ---
 
@@ -9,112 +10,110 @@
 
 | 文件 | 内容 |
 |---|---|
-| `members/schema.json` | P0 §3 schema v1（含权限路径语法 v1 的 pattern 落码） |
-| `members/pianist.yaml` | 出厂第一实例（路径按 `/root/portalk` 实况） |
-| `src/yaml.mjs` | 极简 YAML 子集解析器（自写，零依赖约束） |
-| `src/jsonschema.mjs` | 自写 JSON Schema 校验器（required/type/enum/pattern/uniqueItems/items/properties/minItems） |
-| `src/loader.mjs` | manifest 载入器 + §4 不变量强制 + 黄灯错误对象 |
-| `src/db.mjs` | node:sqlite 建库（P1a §3 SQL）+ 路径解析（--db > PORTALK_DB > data/portalk.db） |
-| `src/threads.mjs` | thread 行为层（P1a §4） |
-| `bin/portalk.mjs` | 最小 CLI（建库 + 成员位载入亮黄灯） |
-| `package.json` | name/bin/scripts（test= node --test / check / fixtures） |
-| `test/` | 7 文件 46 测：fixtures.mjs（可重置生成器）、gen-fixtures.mjs（CLI）、yaml/jsonschema/loader/db/threads `.test.mjs` |
+| `src/reader.mjs` | reader v0：遥测→触感事件管道（tail 增量、跨日界切换+linger 兜底、截断重置、classifyToolUse 钩子） |
+| `src/acp-adapter.mjs` | Pianist ACP adapter：session new/prompt/close 四形状 + 审批轮询 + P0 身份消费 |
+| `bin/portalk.mjs` | 扩展 `acp demo` 子命令（全链演示，真链护栏超时）；无子命令时首单行为不变 |
+| `test/mock-pi.mjs` | pi 子进程替身（落会话文件/续轮追加/上报遥测/HANG 不退场） |
+| `test/mock-shell.mjs` | 壳替身（listen(0) 内核挑口；/approvals/pending + /telemetry/ingest 同真壳形状） |
+| `test/reader.test.mjs` | reader 9 测 |
+| `test/acp-adapter.test.mjs` | adapter 12 测（含 P0 消费、审批浮出/去重/容错、HANG 杀进程） |
+| `test/demo-smoke.mjs` | acp demo CLI 全链冒烟（手动跑，不进 node --test 主链） |
+| `package.json` | check 扩 4 文件；description 更新 |
 | `REPORT.md` | 本件 |
+
+测试账：首单 46 测零回归 + 新增 21 测 = **67 测两遍绿**。
 
 ## 2. 蓝图条目 → 文件 → 测试对照表
 
-### P0 成员位
+### P1b §3 形状映射（四形状）
 
-| 蓝图条目 | 落点 | 测试 |
-|---|---|---|
-| §2 格式：YAML 一成员一文件 `members/{slug}.yaml`，文件是真相 | loader 按此发现+校验文件名=slug | loader.test「不变量违者拒载」slug-file-mismatch 项 |
-| §2 校验：JSON Schema 版本化，坏了亮黄灯拒载不静默 | `members/schema.json` + `src/jsonschema.mjs` + loader 错误对象（stage/schema/messages） | loader.test「schema 坏件拒载出声，好件照载」四阴控 + formatErrors 断言 |
-| §3 字段：manifest_version/slug/kind/agent_id/display_name/identity.memory(ref+liveness)/shells[]（mount/provider/provider_ref/claim_bound_at/claim_bound_by/address）/perms 三域/senses[]/vault | schema.json properties 逐字段（pattern 落码：slug 小写、agent_id `a:|p:` 前缀、ref `协议://`、liveness enum ['file']、日期形状、权限路径 `域:对象类型[:对象]`） | jsonschema.test 七组关键字直测 + loader 全链阴控 |
-| §3 权限路径 v1 只定前两段 | perms 各域 items pattern `^[a-z][a-z0-9_-]*(:…)+$`（至少两段） | schema 链路阴控（bad-pattern） |
-| §3 无 caps 字段（11-15 定案不替 runtime 声明工具） | schema 无此字段；pianist.yaml 注释指 §5a | jsonschema.test「本体只声明受支持关键字」防漂移 |
-| §4-1 slug 全局唯一、agent_id↔slug 1:1 | loader checkInvariants | loader.test dup-slug / dup-agent-id 项 |
-| §4-2 壳三态：同壳至多一住户，换住户时间不重叠 | loader 按 (provider, provider_ref) 分组查 claim 窗口重叠 + 同件 mount 名/壳不重复 | loader.test claim-overlap / mount-dup /「时间窗翻转」/「开放窗口叠加」 |
-| §4-3 kind=agent 必有 identity.memory.ref（探活归 conductor 运行时） | loader 强制 presence；探活不做（见 §4 偏离-8） | loader.test agent-no-memory 项 + 好件目录 human 枝空照载 |
-| §4-4 perms 三域互不相交、无继承 | loader：同一路径不得出现在两域 | loader.test perms-overlap 项 |
-| §4-5 写权推审批 | 运行时行为（conductor），本单不做审批面（任务单明示） | — |
-| §4-6 分身不占成员文件 | 政策约束，无可检结构（manifest 无临时工字段） | — |
-| §6 出厂 Pianist：随包空库形状、display_name 归人类、永远在线默认身体 | `members/pianist.yaml`（memory.ref→`data/tideline/`、senses→仓内 `senses/moonshine/`、address=`systemd:portalk-conductor`） | yaml.test 全形状解析 + loader.test「出厂 members/ 全绿入树」 |
+| ACP 形状 | 蓝图现有对应物 | 本层落点 | 测试 |
+|---|---|---|---|
+| **session new**：pi spawn（驱动器 v2.3 已会）+ session 生命周期对象，session_id↔thread_id 绑定（P1a 双指针国法），spawn 策略 Q1（按需 spawn 无常驻） | adapter `newSession`：spawn `pi -p --model zai-coding-cn/glm-5.2 --session-dir <D> <task>`（驱动器 v2.3 同款 argv 形），session_id=pi 会话文件名 uuid（发现法见偏离-2）；thread 缺省=dm 建连（P1a createThread 复用恰一）；user 消息经 appendMessage 落库带双指针 | acp-adapter 测「newSession：dm 建连…session_start 事件」「复用既有 dm」 |
+| **prompt**：消息进 thread + 送达 pianist；出话回写 thread（speaker_id=agent 身份） | adapter `prompt`：appendMessage(user) + 续轮 spawn（`--session-id` 续同一会话文件）+ 退场后 appendMessage(agent, stdout 回话) | acp-adapter 测「prompt 续轮：--session-id 续同一会话文件…」「完整轮：替身回话落库（speaker=agent 身份）」 |
+| **update stream**：reader v0 触感事件，工具级实时可读，映射 ACP update 序列（**不进对话渲染链**，Q2 定案流式不做） | reader.mjs：`tool_use→task_progress`、`message_end→heartbeat`，event={shell:'pianist', kind, ref, detail} 触感标准形状；无 token 流/打字机 | reader 9 测（映射/tail/跨日界/秒级延迟腿）+ acp-adapter「update 事件」全链测 |
+| **permission request**：壳审批卡 `/approvals/pending` → 卡浮前端（本单只到回调层；批/驳写面 P2） | adapter 审批轮询：interval 可配，按 id 去重（新卡恰浮一次），壳不在场/坏响应容错继续轮（壳故障双通知=P2 T5） | acp-adapter「审批轮询：新卡浮出恰一次（去重）」「容错：404/坏 json 不炸不停」 |
 
-### P1a thread 层
+### P1b §5 判据
 
-| 蓝图条目 | 落点 | 测试 |
-|---|---|---|
-| §3 threads 表（th:{uuid}/type/title(dm NULL)/created_by/created_at/archived_at/deleted_at 墓碑） | db.mjs SQL 照抄（列注释语义进注释） | db.test「threads 列语义」 |
-| §3 dm 唯一性 UNIQUE——【选型】应用层 upsert-复用 | threads.mjs `createThread` 复用 + `findDmByMembers`（含唯一性破损防线） | threads.test dm user↔agent / agent↔agent 恰一+复用（成员序无关） |
-| §3 thread_members（身份切换史；PK 一人一行） | db.mjs 照抄；join/leave/switchAgent 行为 | threads.test「切 agent 身份」 |
-| §3 thread_projects 多对多仅 topic | db.mjs 照抄；createThread：dm 挂项目拒收 | threads.test topic 挂两项目 / dm 不挂项目 |
-| §3 messages 加列不回填 | 新库首建 CREATE（见偏离-2），thread_id REFERENCES + speaker_id | db.test「messages 挂双指针列」+ FK 阴控 |
-| §4 建 thread：topic user/agent 同权可建、可拉人、可切走 | createThread/joinThread/leaveThread/switchAgent | threads.test「topic 切 agent 身份」「拉 B 进来」 |
-| §4 dm 不可新建多开、首条消息隐式建 | 复用语义即隐式建的引擎侧接口（P2 调 createThread） | dm 复用两测 |
-| §4 发消息双指针 + speaker 记身份 | appendMessage 落库 thread_id+session_id+speaker_id | threads.test「形状校验」 |
-| §4 轮次铁律归引擎层 P2，本层不推断 | appendMessage 只做形状校验（thread 存在/成员在册未切走/role 枚举/双指针必填） | threads.test「连续 agent 消息照收」（回归护栏，防私做轮次推断） |
-| §4 归档=从列表摘除消息保留（≠删除） | archiveThread/unarchiveThread + listThreads 默认滤除、`{includeArchived:true}` 调出 | threads.test「归档」 |
-| §4 删除=thread+消息+导出 markdown 全清，一个口 | `purgeThread()`（消息行+导出文件+threads 行+挂表行） | threads.test「purgeThread 全清」 |
-| §4 私聊永不关闭/前端不可删 | purgeThread 默认拒 dm，需显式 force | threads.test「dm 前端不可删」 |
-| §4 归档找回=筛选按钮（11-16） | listThreads includeArchived 参数即筛选面数据接口 | threads.test「归档」 |
-| §2 分类学：dm 恰两人、≥3=群聊不进树 | createThread dm 人数校验拒 3 人 | threads.test「恰两人」 |
-| §5 纯 agent 间私聊同表同法 | dm 成员全 agent 无特判（findDmByMembers 同一查询） | threads.test「agent↔agent 恰一」 |
-| §7 判据（关窗重开上下文连续/硬切无感） | 前端+引擎层验收（P2），本层保证：消息挂 thread_id 恒存、dm 复用恒同 id | 上述测试为其地基 |
+| 判据 | 落地与验证 |
+|---|---|
+| 1. P0 manifest 的 pianist.yaml 实例能被本层消费（session new 成功挂 dm thread） | `resolvePianistIdentity({membersDir})` 经 loader.mjs 读出厂件取 agent_id；真链 demo 首行 `members ok：pianist=a:b7c2e9f4a1d83c60` 即消费实证；测「resolvePianistIdentity：从出厂成员位解析」用仓内真出厂件（拷私有目录隔离） |
+| 2. P1a 消息闭环：user prompt → pianist 出话 → thread 落消息（speaker_id=身份 ID）→ 前端可见 | 真链 demo 收尾打印 thread 账本 2 条：`p:tianxin（user）`+`a:b7c2e9f4a1d83c60（agent）`，speaker 全为身份 ID；mock 测「完整轮」「prompt 续轮」钉死轮次序列 |
+| 3. 工具级事件经 reader v0 可读（触感面消费），不进对话渲染链 | 真链 demo 事件流：`heartbeat tokens=4241 cost=0.001333`（真遥测）；reader 测「start/stop：秒级可读」钉延迟 <1s；对话渲染链零接线（无任何 token 流面——代码里没有，不是没测） |
+| 4. permission request：审批卡浮前端，批/驳真实生效（壳侧状态翻转） | 浮出半环本单交付：真链 demo 浮出 11 张真壳卡（含本单施工中被闸拦的 `rm -rf` 卡自身——read-only 消费，未批未驳）；批/驳写面按任务书归 P2 |
+| 任务书判据（reader）：spawn/exit 事件延迟秒级可读 | session_start 在 spawn+发现后立即发（demo 时间线：发现即发）；reader 缺省 500ms 节拍+start 立即首巡；测腿断言 <1000ms |
 
-### 任务单附加件
+### 任务单施工面逐项
 
-| 要求 | 落点 | 测试 |
-|---|---|---|
-| 坏件亮黄灯拒载不 crash，整套继续 | loader 逐文件 try/catch，错误对象带 stage/messages | 三个坏件目录 × 好件照载断言 |
-| 夹具可重置（删目录重跑即重建） | fixtures.mjs `ensureFixtures`（幂等清建）+ gen-fixtures.mjs CLI；testdata/ 已 gitignore | 测试每跑必重建；`mv test/testdata /tmp` 后 gen-fixtures 重建再全绿（已演示） |
-| db 路径 CLI/env/缺省 | resolveDbPath(--db > --db= > PORTALK_DB > data/portalk.db) | db.test 优先级四断言 |
-| 阴性对照亲手掰 | 见 §5 验收清单 | loader.test「阴性对照·删必字段」/ threads.test「purgeThread 行不在」/ loader.test「时间窗翻转」 |
+| 施工面 | 落点 |
+|---|---|
+| session new：spawn pi 子进程，按需 spawn 无常驻 | `newSession`——每轮 spawn，无常驻进程，session 生命周期挂会话文件不挂进程 |
+| session_id=pi 会话文件名 | 快照差分发现 `<ts>_<uuid>.jsonl`，uuid 即 session_id；真链实锤 `2026-11-16T17-10-54-733Z_01a1e557-…jsonl` |
+| prompt：消息进 thread+送 pianist | appendMessage(user)+argv 送话+退场回写 appendMessage(agent) |
+| update 事件：watcher 盯遥测 mtime+尾行映射触感标准 | reader 盯 `<agent>-<UTC日>.jsonl` size 增量（mtime 等价信号，见偏离-4） |
+| permission：轮询壳 interval 可配，新卡→回调浮出 | `approvalIntervalMs`（缺省 2000ms），`onApproval(card)` 回调即消费面 |
+| session 结束：close 事件+进程退场，thread 连续性不依赖 session | `close()`：SIGTERM 兜底+session_end 事件；测「close 杀活进程」「复用既有 dm：session 硬切 thread 连续」 |
+| CLI `acp demo --thread <th:uuid> --task "..."` | `--thread` 接既有窗口（裸 uuid 自动补 `th:`），缺省 dm 建连；全链演示五段齐 |
 
-## 3. 偏离蓝图处（逐条，均已在代码注释标注）
+## 3. 偏离清单（逐条，代码注释均有标注）
 
-1. **schema 增可选字段 `claim_released_at`**（蓝图 §3 示例六字段之外）：§4-2「换住户=解绑+新绑，时间不重叠」若无解绑时间则窗口无下界、任何换住户都判重叠，校验不可实现。不写=开放窗口（仍在住），与示例形状兼容。
-2. **messages 表用 CREATE 而非蓝图原文的 ALTER TABLE**：蓝图面向既有 messages 表加列；本仓新库首建，指针列直接落进 CREATE。语义同「加列不回填」，db.mjs 注释保留原形说明。
-3. **SQL 加挂 `IF NOT EXISTS`**：幂等开库（同路径二次 open 不炸），其余逐字照抄。
-4. **purgeThread 连 thread_members/thread_projects 挂表行一起清**：任务单列的是消息+导出+threads 行；挂表行不清会留孤儿引用——恰是蓝图 deleted_at 注释要防的孤儿。全清经同一个口。
-5. **dm 的 purge 默认拒、需 `{force:true}`**：蓝图「私聊前端无法删除，永不关闭」。系统级维护口保留但须显式，防 P2 前端误用。
-6. **切回选型落定=复活旧行**（蓝图【选型：施工时定】二选一）：PK (thread_id, member_id) 结构上禁止同人第二行，故切回=清 left_at + joined_at 更新为回归时间；代价见坑-3。
-7. **`.gitignore` +3 行**（`test/testdata/`）：挡测试生成物。本单唯一改动的既有文件。
-8. **探活（liveness=file 的实际开库探测）不做**：ref 是协议地址（tideline://），解析协议到文件系统是 adapter 层事；本层只验形状。§4-3 的「探活失败不删枝只亮黄灯」是 conductor 运行时行为。
-9. **agent_id 对 human 用 `p:` 前缀且 required**：蓝图示例 `claim_bound_by: p:tianxin` 已含人类身份形；字段名单一维持人机同构（人类的 identity 枝空=事实稀疏，agent_id 不空）。
+1. **stdin 保持开 → 推翻，task 走 argv + stdin ignore**【任务书自标选型·可推翻】：坑账先例（spoor portalk 2026-10-22）pi -p 等 stdin EOF 才开工，stdin 保持开=子进程死等；驱动器 v2.3 生产形状是 argv 送话+`stdio:['ignore','pipe','pipe']`。本层照生产先例，后续轮次用每轮新 spawn+`--session-id <uuid>` 续同一会话文件（会话连续性挂文件不挂进程——恰是 P1a 判据 2 语义）。
+2. **session 文件发现=spawn 前后目录快照差分，非 mtime 扫描**：本仓 cwd=/root/portalk 正有别的 pi 会话在跑（施工分身自己），其会话文件 mtime 持续更新，mtime 法会误抓。差分只认新文件名，且校验首行 session header 的 id 与文件名 uuid 一致。
+3. **subagent_spawn/subagent_exit 保留位，未映射**：遥测只有 tool_use/message_end 两 kind（11-08 spoor 已证），无原生 spawn/exit 行；reader 留 `classifyToolUse` 钩子（默认全判 task_progress），分身事件分类待 P2 接 conductor F3 事件账再定。判据 3 的「工具级事件可读」不受影响。
+4. **盯尾用 size 增量非 mtime**：mtime 粒度/更新语义与 size 等价（追加才有新字节），size 判重读更省一次 stat 往返；任务书「mtime+尾行」的意图（只在有新增时读）不变。
+5. **user 消息落库以 session 发现为闸**：双指针国法要求 session_id 必填，发现超时（20s 可配）=杀子进程+抛错，不落消息不造假指针。代价：user 消息持久化晚于 spawn 约 0.2~2s（发现轮询 150ms 节拍），可接受。
+6. **reader startAt:'beginning'（adapter 内）**：遥测 agent 名每 session 独占（`pianist-acp-<短uuid>`），beginning 不会重放外来历史；只防事件先于 session 发现落盘的竞态（mock 测试里实测到该竞态）。
+7. **审批卡 seen 集不回收**：卡消失（他处批走）后同 id 复现不重浮。id 复用=壳侧新卡的形状未在真壳观察到，P2 接写面时若有复用语义再改。
+8. **`resolvePiBin` 三级链含本机装配位 `/root/portalk-runtime/node_modules/.bin/pi`**：demo 需要可执行 pi，仓内未装（零 npm 依赖纪律），env `PORTALK_PI_BIN` > 仓内 node_modules > 本机装配位 > PATH。硬编码装配位是本机部署事实，蓝图 §2「portalk 知道 pianist」的单向依赖语义不变。
+9. **demo 冒烟脚本 `test/demo-smoke.mjs` 不进 node --test 主链**：CLI 端到端要保活 mock 壳且慢（~3s），挂主链拖全套；验收命令清单里手动跑（已绿）。
 
-除上述工程适配外无偏离；schema/SQL/行为规格均按蓝图字面。
+## 4. 新坑（入 spoor portalk 项目坑账）
 
-## 4. 新发现坑（已入 spoor portalk 项目坑账）
+1. **测试 env 泄漏到本机活壳**：adapter 的 shellUrl 缺省链会落到 `process.env.PIANIST_SHELL_URL`（本机=活壳 8770）。一处测试漏传 `shellUrl`/`env:{}` 时，轮询真壳浮出 10+ 张真产卡污染断言（实测 12≠1）——测试密闭纪律：凡构造 adapter 的测试必须显式传 mock 壳地址或空 env。
+2. **共享 testdata 的并行测试竞态**：`ensureFixtures()` 是幂等清建（删了重建），node --test 默认并行跑文件——两个文件同时清建/读同一 testdata 目录会互咬（实测 loader 测随机红）。正法：读静态仓内件（members/*.yaml）或拷入私有 mktemp 目录，不在断言路径上重建共享夹具。
+3. **reader 截断检测要在同趟重读**：`size<offset` 判截断若只重置 offset 不读，事件要等下一个节拍（测试慢一拍红）；检测与重读须同趟完成。
+4. **真 pi 会话文件在启动即落盘**（model_change/thinking 条目触发 flush），快照差分发现窗 20s 绰绰有余；但前提是 stdin ignore——stdin pipe 会让 pi 卡在 readPipedStdin（坑-1 的镜像面：不只是不干活，会话文件都可能不落）。
+5. **本机时区 CST、遥测日界走 UTC**：测试硬编码遥测文件日期踩过 2026-11-16/17 交界（UTC 还是 16 日）；凡涉日界的测试必须注入时钟（`now` 参数），不吃机器钟。
 
-1. **node 22 的 `node --test` 不吃目录参数**：`node --test test/` 把目录当模块加载报 MODULE_NOT_FOUND；须 `node --test test/*.test.mjs`（package.json 已按此）。
-2. **node:sqlite 每连接须 `PRAGMA foreign_keys=ON`**，否则 REFERENCES 静默不生效；且 node 22 每次连接打 ExperimentalWarning（stderr 噪声，非故障）。
-3. **thread_members PK 一人一行 → 身份切换史只留最近一段**：多次切走/切回的完整历史 v0 schema 表达不了（蓝图选型已预告二选一，PK 结构裁定复活旧行）。要记全史需 join/leave 事件表——P2 引擎层真实需求出现再扩，不预支。
-4. **YAML 子集须收紧键名形状**（只允许字母开头标识符）：否则 `::::` 这类垃圾解析成 `{':::': null}` 拖到 schema 段报「缺必填字段」，误导排查。收紧后垃圾在 parse 段就带行号黄灯。
-5. **perms「三域互不相交」的可执行解读**：同一路径串不得出现在两域（loader 强制）；域前缀不强制——蓝图例 `group:symposion` 按语境可住在 interact 域，硬性前缀=域段语义会与之矛盾。「无继承」是判读语义（无跨域通配级联），载入层无可检结构，以注释落码。
-6. **dm 归档后复用不自动回列表**：createThread 复用在册 dm 原样返回（含已归档）；归档找回走显式 unarchiveThread（筛选按钮语义），避免「复用」顺手改档案状态。
+## 5. 真链验收记录（本单唯一真钱点）
 
-## 5. 验收自检（按施工单清单）
-
-1. ✅ `node --test test/*.test.mjs` 全套两遍绿：46/46 × 2（夹具重置演示后再两遍绿）
-2. ✅ 阴性对照亲手掰：
-   - 删 schema 必字段（perms）→ 拒载出声：loader.test「阴性对照·删必字段」+ missing-perms 夹具
-   - 删 threads 行 → purgeThread 报错不静默：threads.test「thread 行不在=报错不静默」
-   - 改夹具时间 → 判定翻转：loader.test「时间窗翻转」（claim 11-06=合法换住户入树 ↔ 11-03=重叠拒载）
-3. ✅ `node --check` 全部 .mjs（src×5 + bin×1 + test×7）
-4. ✅ 本 REPORT §2 对照表逐条对上蓝图 §3/§4
-5. ✅ `git status`：新增 `bin/ members/ src/ test/ package.json REPORT.md` + `.gitignore` 改 3 行（§3-7 已报备），无其他越界改动
-
-## 6. 跑过的命令清单
-
-```bash
-node --check src/yaml.mjs src/jsonschema.mjs src/loader.mjs src/db.mjs src/threads.mjs bin/portalk.mjs test/*.mjs   # 全过
-node --test test/*.test.mjs                    # 多轮，终态两遍 46/46 绿
-npm test                                       # 绿（scripts.test 同链路）
-node bin/portalk.mjs --db /tmp/portalk-cli-demo/portalk.db                    # 绿路：db ready + pianist 入树
-node bin/portalk.mjs --db /tmp/portalk-cli-demo/portalk.db --members test/testdata/members-bad-yaml   # 黄灯演示：3 parse 拒载、好件照载、exitCode 1
-node test/gen-fixtures.mjs                     # 夹具重建
-mv test/testdata /tmp/portalk-testdata-aside && node test/gen-fixtures.mjs && node --test test/*.test.mjs   # 夹具重置演示（rm -rf 上浮审批后换 mv 非破坏等效）
-git status --short && git diff --stat          # 越界检查
+```
+node bin/portalk.mjs acp demo --db /tmp/portalk-acp-real-Od3hC0/portalk.db \
+  --task "请只回一句话确认 Portalk ACP 链路已通，不要调用任何工具。"
 ```
 
-仓外动作报备：① spoor portalk 项目入账两笔（施工判断 + 坑账四条，runtime 记忆层）；② `/tmp` 下 CLI/测试临时目录（照单归照照清）。其余为零。
+- dm thread 建：`th:311e880e-2cce-4bc5-b9f1-077a9a7ac21c`（user=p:tianxin ↔ agent=a:b7c2e9f4a1d83c60，P0 出厂身份）
+- 消息落库：2 条，speaker 全为身份 ID；agent 回话「Portalk ACP 链路已通。」
+- 事件流：`session_start`（ref=01a1e557-200d-7639-b41a-5f8e21933fdc，真 pi 会话文件名 uuid）+ `heartbeat tokens=4241 cost=0.001333`（真遥测，本单零工具调用故无 task_progress——符合预期）+ `session_end exit=0`
+- 审批卡浮出：11 张真壳卡（含施工中被闸拦的 ap_mwjik6nb_15——demo 把自己的拦截卡浮了出来，只读未批）
+- 会话文件实锤：`~/.pi/agent/sessions/--root-portalk--/2026-11-16T17-10-54-733Z_01a1e557-200d-7639-b41a-5f8e21933fdc.jsonl`（蓝图路径形状逐字对上）
+- 遥测实锤：`/root/portalk-runtime/data/telemetry/pianist-acp-15a61b2a-2026-11-16.jsonl`（活壳落盘，reader 读到）
+- **花费：¥0.001333**（message_end usage，glm-5.2）
+
+## 6. 验收自检（按施工单清单）
+
+1. ✅ `node --test test/*.test.mjs` 全套两遍绿：67/67 × 2（首单 46 测零回归）
+2. ✅ 突变可掰：拆 reader 日界切换（`if (false && s.file !== current)`）→「跨日界切换」腿红（复原绿）；拆审批浮出（注释 onApproval 调用）→「审批轮询」两腿红（复原绿）；复原后 diff 备份零残留
+3. ✅ acp demo 真链一次：见 §5，exit 0 干净
+4. ✅ 本 REPORT §2 对照表对上蓝图 §3/§5
+5. ✅ `git status`：`M bin/portalk.mjs M package.json` + 新增 src×2/test×5，全部仓内；无越界
+
+## 7. 跑过的命令清单
+
+```bash
+npm run check                                          # 全过（含新增 4 文件）
+node --test test/*.test.mjs                            # 多轮，终态两遍 67/67 绿（另 5 连跑验证 flake 修复）
+node --test test/reader.test.mjs                       # 单件调（9 测）
+node --test test/acp-adapter.test.mjs                  # 单件调（12 测）
+# 突变两瓣：
+cp src/reader.mjs /tmp/reader.mjs.bak && <拆日界切换> && node --test test/reader.test.mjs   # 跨日界腿红
+cp src/acp-adapter.mjs /tmp/acp-adapter.mjs.bak && <拆审批浮出> && node --test test/acp-adapter.test.mjs  # 浮出两腿红
+# 复原 + diff 零残留
+node test/demo-smoke.mjs                               # CLI 全链冒烟（mock pi+mock 壳，零真钱）PASS
+node bin/portalk.mjs acp demo --db /tmp/portalk-acp-real-Od3hC0/portalk.db --task "…"      # 真链一次（§5）
+node bin/portalk.mjs --db /tmp/portalk-cli-2/portalk.db # 首单行为回归（db ready + pianist 入树）✓
+git status --short && git diff --stat                  # 越界检查
+```
+
+仓外动作报备：① spoor portalk 项目入账（本单判断+坑账五条，runtime 记忆层）；② `/tmp` 残留归照照：`/tmp/portalk-acp-real-Od3hC0/`（真链 db）、`/tmp/portalk-demo-smoke-*`（冒烟）、`/tmp/mockpi.sh`、`/tmp/reader.mjs.bak`、`/tmp/acp-adapter.mjs.bak`、`/tmp/portalk-cli-2/`。真链另生两件真账（非 /tmp）：pi 会话文件（~/.pi/agent/sessions/--root-portalk--/）与遥测行（portalk-runtime/data/telemetry/pianist-acp-15a61b2a-2026-11-16.jsonl）。
