@@ -118,6 +118,16 @@
         }
       }
     },
+    "prefs": {
+      "type": "object",
+      "description": "agent 配置面偏好位（P2 蓝图 §2 记忆提醒 11-18 定案：收件人是 agent 不是用户，用户全程无感知）。v1 只有 memory_remind 一位：开=Portalk 每 session 提醒一次该 agent「可以写记忆」，写不写是 agent 的事。Pianist 豁免（自带记忆体系）——豁免是路由硬规则不靠配置缺省",
+      "properties": {
+        "memory_remind": {
+          "type": "boolean",
+          "description": "权限位开关：true=每 session new 注入一次记忆提醒；false/缺省=零提醒"
+        }
+      }
+    },
     "senses": {
       "type": "array",
       "description": "感官枝：引用，非拥有",

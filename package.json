@@ -12,7 +12,7 @@
   },
   "scripts": {
     "test": "node --test test/*.test.mjs",
-    "check": "node --check src/yaml.mjs && node --check src/jsonschema.mjs && node --check src/loader.mjs && node --check src/db.mjs && node --check src/threads.mjs && node --check src/reader.mjs && node --check src/acp-adapter.mjs && node --check bin/portalk.mjs && node --check test/mock-pi.mjs && node --check test/mock-shell.mjs",
+    "check": "node --check src/yaml.mjs && node --check src/jsonschema.mjs && node --check src/loader.mjs && node --check src/db.mjs && node --check src/threads.mjs && node --check src/reader.mjs && node --check src/acp-adapter.mjs && node --check src/router.mjs && node --check src/heartbeat.mjs && node --check src/ep-connector.mjs && node --check src/compose.mjs && node --check src/server.mjs && node --check bin/portalk.mjs && node --check tools/p2b-g4-dispatch.mjs && node --check test/mock-pi.mjs && node --check test/mock-shell.mjs && node --check test/ws-client.mjs && node --check test/heartbeat.test.mjs && node --check test/memory-remind.test.mjs && node --check test/ep-connector.test.mjs && node --check test/server.test.mjs",
     "fixtures": "node test/gen-fixtures.mjs"
   }
 }

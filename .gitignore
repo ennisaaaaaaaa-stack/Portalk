@@ -9,3 +9,7 @@ node_modules/
 # 测试夹具生成物（node test/gen-fixtures.mjs 或任一测试可重建）
 test/testdata/
 docs/blueprints/
+
+# 蓝图/架构快照随单材料走盘不走仓（甜心 11-22：蓝图性质文档不入公开仓）
+data/**/Portalk-蓝图-*.md
+data/**/Portalk-架构-*.md

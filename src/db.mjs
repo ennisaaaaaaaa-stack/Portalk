@@ -71,5 +71,11 @@ export function ensureSchema(db) {
       created_at  TEXT NOT NULL
     );
   `);
+
+  // —— P2 接线层 migration：messages 加 seq 列（thread 内单调递增——断线重连 since 补拉的闸，蓝图判据 3）。
+  // 加列不回填（旧消息无 seq，补拉时按 ?? 0 处理）；ALTER 可重复执行（列已存在即跳过），
+  // 不改既有函数签名，跑全套绿即算无损（施工单 A 自判项）。
+  const msgCols = db.prepare('PRAGMA table_info(messages)').all().map((c) => c.name);
+  if (!msgCols.includes('seq')) db.exec('ALTER TABLE messages ADD COLUMN seq INTEGER');
   return db;
 }

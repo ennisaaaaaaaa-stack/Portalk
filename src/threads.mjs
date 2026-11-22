@@ -111,6 +111,13 @@ export function listThreads(db, { includeArchived = false, includeDeleted = fals
   return db.prepare(sql).all(...params);
 }
 
+// thread 内单调递增 seq（P2 接线层）：断线重连 since=<lastSeq> 补拉的闸。每 thread 独立计数，
+// 不用全局 rowid（purge 后 rowid 可复用，补拉语义会漂；seq 是逻辑水位，删光归零重数）。
+export function nextThreadSeq(db, threadId) {
+  const r = db.prepare('SELECT COALESCE(MAX(seq), 0) AS m FROM messages WHERE thread_id = ?').get(threadId);
+  return (r.m ?? 0) + 1;
+}
+
 // —— 发消息（§4：双指针落库；只做形状校验，不做轮次推断） ——
 export function appendMessage(db, { thread_id, session_id, speaker_id, role, content, id, created_at } = {}) {
   if (!thread_id || typeof thread_id !== 'string') throw new Error('thread_id 必填（住哪个窗口）');
@@ -128,9 +135,10 @@ export function appendMessage(db, { thread_id, session_id, speaker_id, role, con
   // 轮次形状（上一条 user、这条 agent……）不在此推断：轮次铁律归引擎层 P2
 
   const mid = id ?? `m:${randomUUID()}`;
+  const seq = nextThreadSeq(db, thread_id);
   db.prepare(
-    'INSERT INTO messages (id, session_id, thread_id, speaker_id, role, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
-  ).run(mid, session_id, thread_id, speaker_id, role, content, created_at ?? now());
+    'INSERT INTO messages (id, session_id, thread_id, speaker_id, role, content, created_at, seq) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+  ).run(mid, session_id, thread_id, speaker_id, role, content, created_at ?? now(), seq);
   return db.prepare('SELECT * FROM messages WHERE id = ?').get(mid);
 }
 

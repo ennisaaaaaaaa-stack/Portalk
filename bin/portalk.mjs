@@ -1,6 +1,9 @@
 #!/usr/bin/env node
 // bin/portalk.mjs —— CLI 入口
 //   portalk [--db PATH] [--members DIR]                 建库 + 成员位载入亮黄灯（首单行为不变）
+//   portalk serve [--port 9200] [--db PATH]
+//                [--host 127.0.0.1] [--export-dir data/exports]
+//                                                      P2 接线层：HTTP API 面 + WebSocket 长连面
 //   portalk acp demo --task "..." [--thread th:uuid]    P1b 全链演示：dm 建连→prompt→事件流打印→审批卡浮出→close
 //                                                      （acp demo 可真链：spawn 真 pi 一次，本单唯一真钱点）
 import path from 'node:path';
@@ -149,9 +152,39 @@ async function acpDemo() {
 }
 
 // ---------------------------------------------------------------------------
+// serve —— P2 接线层：Portalk Server（HTTP API + WebSocket 长连）
+// ---------------------------------------------------------------------------
+async function serveCmd() {
+  const port = Number(flagValue('--port') ?? 9200);
+  const host = flagValue('--host') ?? '127.0.0.1'; // 桌面单机面，不出网
+  const dbPath = resolveDbPath();
+  const exportDir = flagValue('--export-dir') ?? 'data/exports';
+  const db = openDb(dbPath);
+  const { createPortalkServer } = await import('../src/server.mjs');
+  const srv = createPortalkServer({ db, port, host, exportDir });
+  const addr = await srv.start();
+  console.log(`[portalk] serve 面世：http://${addr.host}:${addr.port} · ws://${addr.host}:${addr.port}/threads/<threadId>`);
+  console.log(`[portalk] db=${dbPath} · exportDir=${exportDir}`);
+  console.log('[portalk] API：/api/health /api/threads /api/threads/:id/messages?since=<lastSeq> /api/threads/:id/pin|unpin /api/search?q= /api/threads/:id/export');
+  console.log('[portalk] EP 转发注入点未接线（epForwardStub）——WS 消息会出声 not wired in this slice，属本单形状');
+  const shutdown = () => {
+    console.log('\n[portalk] 收摊（SIGINT）');
+    srv.close().then(() => {
+      db.close();
+      process.exit(0);
+    });
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
+}
+
+// ---------------------------------------------------------------------------
 // 入口分发
 // ---------------------------------------------------------------------------
-if (argv[0] === 'acp' && argv[1] === 'demo') {
+if (argv[0] === 'serve') {
+  argv.splice(0, 1); // 剩余旗标归 serveCmd 读
+  await serveCmd();
+} else if (argv[0] === 'acp' && argv[1] === 'demo') {
   argv.splice(0, 2); // 剩余旗标归 acpDemo 读
   await acpDemo();
 } else {

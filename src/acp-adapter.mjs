@@ -8,6 +8,12 @@
 //   update stream     → reader v0（src/reader.mjs）遥测→触感事件；流式不做（Q2 定案 11-17）
 //   permission req    → 轮询壳 GET /approvals/pending，新卡→回调浮出（本单只读；批/驳写面 P2）
 //
+// 【P2B 记忆提醒（蓝图 §2 11-18 定案，判据 7）】权限位开→每 session 恰一次提醒送达 agent：
+// 注入点=session new 的首轮 prompt 前缀（ACP 四形状里最自然的口，不发明新通道）；只进
+// spawn argv 不进 thread 库（库里永远是用户原话——提醒是给 agent 的不是给对话史的）。
+// prompt 续轮不再注入（恰一次的闸在 newSession 唯一）；Pianist 豁免是硬规则（自带记忆
+// 体系），不靠配置缺省——memoryReminder 里 slug==='pianist' 恒 null，权限位开了也不吃。
+//
 // 【选型·已推翻】任务书原案「stdin 写完 task 保持打开供后续轮次」不可行：坑账先例
 // （spoor portalk 2026-10-22）pi -p 等 stdin EOF 才开工，stdin 保持开=子进程死等不干活；
 // 驱动器 v2.3 生产形状是 task 走 argv + stdio:['ignore','pipe','pipe']。本层照生产先例落：
@@ -40,6 +46,22 @@ export function resolvePianistIdentity({ membersDir, slug = 'pianist' } = {}) {
 export function encodeCwdDir(cwd) {
   const resolved = path.resolve(cwd);
   return `--${resolved.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--`;
+}
+
+// —— 记忆提醒（P2 判据 7）：人话一句话，写不写是 agent 的事 ——
+export const MEMORY_REMIND_TEXT = '【Portalk 记忆提醒】用户已为你开启记忆权限位：本 session 你可以写记忆（记下判断、坑、可复用的做法）。写不写由你判断，这只是提醒。';
+
+/**
+ * 记忆提醒裁决：权限位开且非 pianist → 提醒文本；否则 null（零提醒）。
+ * 豁免链：slug==='pianist' 恒 null（硬规则最优先，权限位显式开也不吃——自带记忆体系）；
+ * 其余成员看 manifest.prefs.memory_remind === true。
+ * @param {object|null} manifest 成员位 manifest（membersDir 路线可得；null=无配置面）
+ * @param {object} p { slug } 成员 slug（豁免判据）
+ */
+export function memoryReminder(manifest, { slug } = {}) {
+  if (slug === 'pianist') return null; // Pianist 豁免：不吃提醒（蓝图定案）
+  if (manifest?.prefs?.memory_remind !== true) return null; // 权限位关/缺省=零提醒
+  return MEMORY_REMIND_TEXT;
 }
 
 // pi 会话文件名形状：<UTC时间戳（: . → -）>_<uuid>.jsonl
@@ -77,6 +99,8 @@ function readdirSafe(dir) {
  *   sessionDiscoverTimeoutMs=20000
  *   now=()=>new Date()     时钟注入
  *   env=process.env        子进程基础 env（PIANIST_AGENT_ID 会覆写为每 session 独占名）
+ *   memoryRemind           记忆提醒权限位覆写（缺省从 manifest.prefs.memory_remind 推导；
+ *                          slug='pianist' 恒不提醒——豁免硬规则）
  *   onEvent(ev)            触感事件回调（session_start/end + reader 映射流）
  *   onApproval(card)       审批卡浮出回调（新卡恰一次）
  */
@@ -96,6 +120,7 @@ export function createAcpAdapter(opts = {}) {
     sessionDiscoverTimeoutMs = 20_000,
     now = () => new Date(),
     env = process.env,
+    memoryRemind,
     onEvent = () => {},
     onApproval,
   } = opts;
@@ -103,8 +128,21 @@ export function createAcpAdapter(opts = {}) {
   if (!db) throw new Error('createAcpAdapter 需 db（openDb 产物）');
   if (!telemetryDir) throw new Error('createAcpAdapter 需 telemetryDir（reader 盯的遥测目录）');
 
-  const pianistAgentId = opts.pianistAgentId ?? (opts.membersDir ? resolvePianistIdentity(opts).agentId : undefined);
+  const resolvedIdentity = opts.membersDir ? resolvePianistIdentity(opts) : null;
+  const pianistAgentId = opts.pianistAgentId ?? resolvedIdentity?.agentId;
   if (!pianistAgentId) throw new Error('需 pianistAgentId 或 membersDir（P0 manifest 解析身份）');
+
+  // 记忆提醒裁决位（P2 判据 7）：显式覆写 memoryRemind（true/false）> manifest 推导；豁免硬规则最优先
+  const slug = opts.slug ?? 'pianist';
+  const manifest = resolvedIdentity?.manifest ?? null;
+  const remindText =
+    slug === 'pianist'
+      ? null // Pianist 豁免：硬规则最优先，显式开了也不吃
+      : memoryRemind === true
+        ? MEMORY_REMIND_TEXT
+        : memoryRemind === false
+          ? null
+          : memoryReminder(manifest, { slug });
 
   const sessionDir = opts.sessionDir ?? path.join(os.homedir(), '.pi', 'agent', 'sessions', encodeCwdDir(cwd));
   const shell = shellUrl ?? env.PIANIST_SHELL_URL ?? null;
@@ -223,11 +261,13 @@ export function createAcpAdapter(opts = {}) {
   /**
    * session new（ACP 形状 1）。
    * @param {object} p
-   *   threadId  挂哪个 thread（缺省=dm 建连：createThread 复用恰一/新建）
-   *   task      首轮任务（user 消息，进 thread + 作 pi 首轮 prompt）
-   *   agentName 遥测独占名（缺省 pianist-acp-<短uuid>；一名一会话→遥测文件即会话事件面）
+   *   threadId        挂哪个 thread（缺省=dm 建连：createThread 复用恰一/新建）
+   *   task            首轮任务（user 消息，进 thread + 作 pi 首轮 prompt）
+   *   agentName       遥测独占名（缺省 pianist-acp-<短uuid>；一名一会话→遥测文件即会话事件面）
+   *   taskPreStored   task 已由上层落库（EP 转发路由场景：routeMessage 是唯一落库口）→
+   *                   跳过本函数的首轮 appendMessage 防双写；出话回写不受影响
    */
-  async function newSession({ threadId, task, agentName } = {}) {
+  async function newSession({ threadId, task, agentName, taskPreStored = false } = {}) {
     if (!task || typeof task !== 'string') throw new Error('newSession 需 task（首轮任务）');
 
     // thread 建连/挂接（P1a：dm 复用恰一；显式 threadId=接既有窗口）
@@ -245,7 +285,10 @@ export function createAcpAdapter(opts = {}) {
     const name = agentName ?? `pianist-acp-${randomUUID().slice(0, 8)}`;
     const before = new Set(readdirSafe(sessionDir));
 
-    const spawned = spawnPi(['-p', '--model', model, '--session-dir', sessionDir, task], name);
+    // 记忆提醒（判据 7）：只进 spawn argv（agent 读得到），不进库（对话史是用户原话）；
+    // 恰一次的闸=只在 session new 拼一次，prompt 续轮不排此话
+    const prompt0 = remindText ? `${remindText}\n\n${task}` : task;
+    const spawned = spawnPi(['-p', '--model', model, '--session-dir', sessionDir, prompt0], name);
     const session = {
       sessionId: null,
       threadId: thread.id,
@@ -266,14 +309,17 @@ export function createAcpAdapter(opts = {}) {
     session.sessionId = found.sessionId;
     session.sessionFile = found.file;
 
-    // 首轮 user 消息落库（双指针国法：thread_id 归 Portalk，session_id 归 EP——落库以发现为闸，防假指针）
-    appendMessage(db, {
-      thread_id: session.threadId,
-      session_id: session.sessionId,
-      speaker_id: userId,
-      role: 'user',
-      content: task,
-    });
+    // 首轮 user 消息落库（双指针国法：thread_id 归 Portalk，session_id 归 EP——落库以发现为闸，防假指针）；
+    // taskPreStored=上层已落（EP 转发路由：routeMessage 是唯一落库口）→ 防双写跳过
+    if (!taskPreStored) {
+      appendMessage(db, {
+        thread_id: session.threadId,
+        session_id: session.sessionId,
+        speaker_id: userId,
+        role: 'user',
+        content: task,
+      });
+    }
 
     // update stream：reader 盯本会话独占的遥测 agent 文件（agentName 每 session 独占，
     // 故 startAt:'beginning' 不会重放外来历史——只防事件先于发现落盘的竞态）
@@ -301,6 +347,24 @@ export function createAcpAdapter(opts = {}) {
       role: 'user',
       content: text,
     });
+    return spawnAndReply(session, text);
+  }
+
+  /**
+   * forward（P2B EP 转发口）：不落库的续轮——消息已由路由层唯一落库口（router.routeMessage）
+   * 进过 thread，EP 侧只续轮 spawn + 出话回写。与 prompt 的分工：
+   *   prompt  = ACP 直接驱动（adapter 是唯一落库口）
+   *   forward = 路由转发驱动（router 是唯一落库口，adapter 只当引擎）
+   */
+  async function forward(session, text) {
+    if (!session || !session.sessionId) throw new Error('forward 需活 session（newSession 产物）');
+    if (session.closed) throw new Error('session 已 close，不可再 forward');
+    if (!text || typeof text !== 'string') throw new Error('forward 需 text');
+    return spawnAndReply(session, text);
+  }
+
+  // prompt/forward 共用的续轮 spawn（--session-id 续同一会话文件）+ 出话回写
+  function spawnAndReply(session, text) {
     const spawned = spawnPi(
       ['-p', '--model', model, '--session-dir', sessionDir, '--session-id', session.sessionId, text],
       session.agentName,
@@ -334,6 +398,7 @@ export function createAcpAdapter(opts = {}) {
   return {
     newSession,
     prompt,
+    forward,
     close,
     stop,
     // 诊断面（demo/测试用）
