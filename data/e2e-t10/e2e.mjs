@@ -67,11 +67,16 @@ await new Promise((r) => setTimeout(r, 8000));
 const fwd = stack.epForward.stats;
 console.log('epForward stats:', JSON.stringify(fwd));
 
-// 7) HTTP 搜索（判据 6 顺手）
-const q = await fetch(`${base}/api/search?q=${encodeURIComponent('真身')}`).then((r) => r.json());
-console.log('search hits:', q.hits?.length ?? q.results?.length ?? 'shape?', Object.keys(q));
+// 7) HTTP 搜索（判据 6 顺手）。注：探针词必须存在于消息正文——搜索吃 m.content 不吃 thread 标题；
+//    11-22 首版用「真身」查得 0 命中，根因即词只在标题「T10 真身端到端」里，非端点病（wander 11-22 四班 SQL 复核）。
+const searchTerm = '收到'; // 三条消息正文全含（user 提示/agent 回话/pinned 都带「收到」）
+const sr = await fetch(`${base}/api/search?q=${encodeURIComponent(searchTerm)}`).then((r) => r.json());
+const searchCount = sr.count ?? sr.results?.length ?? -1;
+console.log('search hits:', searchCount, '(term:', searchTerm + ')');
 
 ws.close?.();
 await stack.close();
+const pass = agentReply && fwd.forwarded >= 1 && searchCount >= 1;
 console.log('T10 verdict:', agentReply && fwd.forwarded >= 1 ? 'PASS' : 'FAIL', `(${((Date.now() - t0) / 1000).toFixed(0)}s)`);
-process.exit(agentReply ? 0 : 1);
+fs.rmSync(tmp, { recursive: true, force: true }); // mkdtemp 拆库不留坟（11-22 首版漏收，/tmp 沉四座）
+process.exit(pass ? 0 : 1);
